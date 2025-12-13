@@ -3,9 +3,9 @@
 // @namespace    Tampermonkey Scripts
 // @match        *://www.youtube.com/*
 // @grant        none
-// @version      1.2
+// @version      1.3
 // @author       
-// @description  长按Z键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接除外）。
+// @description  长按Z键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接和播放列表内视频除外）。
 // @license      MIT
 // @run-at       document-start
 // ==/UserScript==
@@ -79,6 +79,24 @@
         return false;
     }
 
+    // 检查点击是否来自播放列表面板中的视频项
+    function isPlaylistPanelVideoClick(anchor) {
+        // 检查祖先元素是否包含播放列表视频渲染器组件
+        // ytd-playlist-panel-video-renderer 是播放列表面板中视频项的容器
+        const playlistVideoRenderer = anchor.closest('ytd-playlist-panel-video-renderer');
+        if (playlistVideoRenderer) {
+            return true;
+        }
+
+        // 也检查 ytd-playlist-video-renderer（用于播放列表页面）
+        const playlistPageRenderer = anchor.closest('ytd-playlist-video-renderer');
+        if (playlistPageRenderer) {
+            return true;
+        }
+
+        return false;
+    }
+
     function handleLinkClick(event) {
         // 如果未启用新标签页打开功能，直接返回
         if (!ENABLE_NEW_TAB_LINKS) return;
@@ -90,6 +108,11 @@
 
         // 如果是章节链接，不拦截，让其正常跳转时间点
         if (isChapterLink(anchor.href)) {
+            return;
+        }
+
+        // 如果是播放列表面板中的视频点击，不拦截，让其在当前页面切换视频
+        if (isPlaylistPanelVideoClick(anchor)) {
             return;
         }
 
