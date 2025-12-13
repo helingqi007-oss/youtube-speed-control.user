@@ -1,0 +1,67 @@
+# License
+LICENSE
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Puppeteer
+.local-chromium/
+
+# 调试文件
+debug-*.png
+*.log
+
+# 配置文件(包含敏感信息)
+chrome-profiles-config.json
+chrome-profiles-from-shortcuts.json
+*-config.json
+profile-mapping.json
+
+# Cookie 文件(包含敏感信息)
+ibon_cookies*.txt
+ibon_cookies*.json
+ibon_cookies*.csv
+*_cookies*.txt
+*_cookies*.json
+*_cookies*.csv
+
+# 所有 txt 文件(可能包含敏感数据)
+*.txt
+!README.txt
+!LICENSE.txt
+
+# 生成的文件
+scripts/*-config.json
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+
+# Chrome相关
+*.crx
+*.pem
+
+# 测试输出
+test-output/
+screenshots/
+
+# 打包文件
+*.zip
+*.tar.gz
