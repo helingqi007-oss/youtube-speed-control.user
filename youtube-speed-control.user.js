@@ -3,9 +3,9 @@
 // @namespace    Tampermonkey Scripts
 // @match        *://www.youtube.com/*
 // @grant        none
-// @version      1.3
+// @version      1.4
 // @author       
-// @description  长按Z键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接和播放列表内视频除外）。
+// @description  长按Z键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接和播放列表内视频和缩略图悬浮操作按钮除外）。
 // @license      MIT
 // @run-at       document-start
 // ==/UserScript==
