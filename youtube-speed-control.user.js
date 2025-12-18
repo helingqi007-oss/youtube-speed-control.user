@@ -97,6 +97,29 @@
         return false;
     }
 
+    // 检查点击是否来自缩略图悬浮操作按钮（如"添加到队列"、"添加到播放列表"等）
+    function isThumbnailHoverAction(element) {
+        // 检查是否点击了 hover-overlays 区域内的元素（包含"稍后观看"和"添加到播放列表"按钮）
+        const hoverOverlays = element.closest('#hover-overlays');
+        if (hoverOverlays) {
+            return true;
+        }
+
+        // 检查是否点击了 mouseover-overlay 区域
+        const mouseoverOverlay = element.closest('#mouseover-overlay');
+        if (mouseoverOverlay) {
+            return true;
+        }
+
+        // 检查是否是 ytd-thumbnail-overlay-toggle-button-renderer 组件（稍后观看/添加到播放列表按钮）
+        const overlayToggleButton = element.closest('ytd-thumbnail-overlay-toggle-button-renderer');
+        if (overlayToggleButton) {
+            return true;
+        }
+
+        return false;
+    }
+
     function handleLinkClick(event) {
         // 如果未启用新标签页打开功能，直接返回
         if (!ENABLE_NEW_TAB_LINKS) return;
@@ -113,6 +136,11 @@
 
         // 如果是播放列表面板中的视频点击，不拦截，让其在当前页面切换视频
         if (isPlaylistPanelVideoClick(anchor)) {
+            return;
+        }
+
+        // 如果是缩略图悬浮操作按钮（如"添加到队列"、"添加到播放列表"），不拦截
+        if (isThumbnailHoverAction(event.target)) {
             return;
         }
 
