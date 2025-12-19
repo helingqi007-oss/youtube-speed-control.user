@@ -3,9 +3,9 @@
 // @namespace    Tampermonkey Scripts
 // @match        *://www.youtube.com/*
 // @grant        none
-// @version      1.4
+// @version      1.5
 // @author       
-// @description  长按Z键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接和播放列表内视频和缩略图悬浮操作按钮除外）。
+// @description  长按Z键或Ctrl键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接和播放列表内视频和缩略图悬浮操作按钮除外）。
 // @license      MIT
 // @run-at       document-start
 // ==/UserScript==
@@ -17,6 +17,7 @@
     // 倍速相关配置
     const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3];
     const SPEED_KEY_Z = 2.0;
+    const SPEED_KEY_CTRL = 2.0;
     const SPEED_KEY_RIGHT = 3.0;
 
     // 新标签页打开链接相关配置
@@ -204,7 +205,7 @@
 
     // ==================== 键盘事件处理 ====================
     function handleKeyDown(e) {
-        if (e.code !== 'KeyZ' && e.code !== 'ArrowRight') return;
+        if (e.code !== 'KeyZ' && e.code !== 'ControlLeft' && e.code !== 'ControlRight' && e.code !== 'ArrowRight') return;
 
         const tag = e.target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
@@ -223,6 +224,24 @@
 
             video.playbackRate = SPEED_KEY_Z;
             showOverlay(SPEED_KEY_Z);
+            updateSpeedHighlight();
+            return;
+        }
+
+        // Ctrl键（左或右）：立即触发倍速
+        if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+            if (isPressing) return;
+
+            const video = getVideo();
+            if (!video) return;
+
+            isPressing = true;
+            isLongPress = true;
+            currentKey = e.code;
+            originalSpeed = video.playbackRate;
+
+            video.playbackRate = SPEED_KEY_CTRL;
+            showOverlay(SPEED_KEY_CTRL);
             updateSpeedHighlight();
             return;
         }
@@ -267,7 +286,7 @@
     }
 
     function handleKeyUp(e) {
-        if (e.code !== 'KeyZ' && e.code !== 'ArrowRight') return;
+        if (e.code !== 'KeyZ' && e.code !== 'ControlLeft' && e.code !== 'ControlRight' && e.code !== 'ArrowRight') return;
 
         const tag = e.target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
@@ -275,6 +294,22 @@
         // Z键松开处理
         if (e.code === 'KeyZ') {
             if (isPressing && currentKey === 'KeyZ') {
+                const video = getVideo();
+                if (video) {
+                    video.playbackRate = originalSpeed;
+                }
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            }
+            return;
+        }
+
+        // Ctrl键（左或右）松开处理
+        if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+            if (isPressing && (currentKey === 'ControlLeft' || currentKey === 'ControlRight')) {
                 const video = getVideo();
                 if (video) {
                     video.playbackRate = originalSpeed;
