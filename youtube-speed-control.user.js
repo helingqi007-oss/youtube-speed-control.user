@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         YouTube 长按倍速播放 + 倍速按钮 + 新标签页打开
+// @name         YouTube 倍速增强 + 新标签页打开
 // @namespace    Tampermonkey Scripts
 // @match        *://www.youtube.com/*
 // @grant        none
-// @version      1.5
+// @version      1.6
 // @author       
-// @description  长按Z键或Ctrl键2倍速、长按右方向键3倍速播放，松开恢复原速度。视频控制栏添加倍速切换按钮。YouTube链接强制新标签页打开（章节链接和播放列表内视频和缩略图悬浮操作按钮除外）。
+// @description  长按快捷键快速倍速播放（Z/Ctrl 2倍速，右方向键 3倍速）。视频控制栏添加倍速切换按钮，支持自定义倍速设置。YouTube 链接强制新标签页打开。
 // @license      MIT
 // @run-at       document-start
 // ==/UserScript==
@@ -15,7 +15,9 @@
 
     // ==================== 配置 ====================
     // 倍速相关配置
-    const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3];
+    const PRESET_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4]; // 预设倍速，不可删除
+    let SPEED_OPTIONS = [0.5, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]; // 当前显示的倍速
+    let CUSTOM_SPEEDS = []; // 用户自定义添加的倍速
     const SPEED_KEY_Z = 2.0;
     const SPEED_KEY_CTRL = 2.0;
     const SPEED_KEY_RIGHT = 3.0;
@@ -360,23 +362,665 @@
 
     // ==================== 外置倍速控件 ====================
     function createSpeedControl() {
-        // 创建容器 - 与 YouTube 原生控件风格一致
-        const container = document.createElement('div');
-        container.classList.add('yt-speed-control');
-        container.style.cssText = `
-            display: inline-flex !important;
-            align-items: center !important;
-            height: 100% !important;
-            padding: 0 !important;
-            margin: 0 4px 0 0 !important;
-            color: #fff !important;
-            font-size: 13px !important;
-            font-family: 'YouTube Sans', 'Roboto', Arial, sans-serif !important;
-            vertical-align: top !important;
-            flex-shrink: 0 !important;
-            position: relative !important;
-            width: auto !important;
-        `;
+        try {
+            // 创建容器 - 与 YouTube 原生控件风格一致
+            const container = document.createElement('div');
+            container.classList.add('yt-speed-control');
+            container.style.cssText = `
+                display: inline-flex !important;
+                align-items: center !important;
+                height: 100% !important;
+                padding: 0 !important;
+                margin: 0 4px 0 0 !important;
+                color: #fff !important;
+                font-size: 13px !important;
+                font-family: 'YouTube Sans', 'Roboto', Arial, sans-serif !important;
+                vertical-align: top !important;
+                flex-shrink: 0 !important;
+                position: relative !important;
+                width: auto !important;
+            `;
+
+            // 创建倍速按钮容器
+            const buttonsContainer = document.createElement('div');
+            buttonsContainer.classList.add('yt-speed-buttons');
+            buttonsContainer.style.cssText = `
+                display: inline-flex !important;
+                align-items: center !important;
+                height: 100% !important;
+            `;
+
+            SPEED_OPTIONS.forEach(speed => {
+                const option = document.createElement('button');
+                option.classList.add('yt-speed-option');
+                option.innerText = speed + 'x';
+                option.dataset.speed = speed;
+                option.title = speed + '倍速';
+                option.style.cssText = `
+                    cursor: pointer !important;
+                    margin: 0 !important;
+                    padding: 0 6px !important;
+                    height: 100% !important;
+                    width: auto !important;
+                    min-width: 32px !important;
+                    border: none !important;
+                    background: transparent !important;
+                    color: rgba(255, 255, 255, 0.9) !important;
+                    font-size: 13px !important;
+                    font-family: 'YouTube Sans', 'Roboto', Arial, sans-serif !important;
+                    font-weight: 400 !important;
+                    transition: opacity 0.1s ease-in-out !important;
+                    white-space: nowrap !important;
+                    flex-shrink: 0 !important;
+                    outline: none !important;
+                    opacity: 0.9 !important;
+                    box-sizing: border-box !important;
+                `;
+
+                option.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const video = getVideo();
+                    if (video) {
+                        video.playbackRate = speed;
+                        originalSpeed = speed;
+                        highlightOption(option);
+                    }
+                });
+
+                option.addEventListener('mouseenter', () => {
+                    option.style.opacity = '1';
+                });
+
+                option.addEventListener('mouseleave', () => {
+                    const video = getVideo();
+                    const currentSpeed = video ? video.playbackRate : 1;
+                    if (parseFloat(option.dataset.speed) !== currentSpeed) {
+                        option.style.opacity = '0.9';
+                    }
+                });
+
+                buttonsContainer.appendChild(option);
+            });
+
+            // 创建自定义设置按钮
+            const customButton = createCustomSpeedButton();
+
+            container.appendChild(buttonsContainer);
+            container.appendChild(customButton);
+
+            return container;
+        } catch (error) {
+            console.error('创建倍速控件失败:', error);
+            // 如果创建自定义按钮失败，返回只有基本按钮的容器
+            const container = document.createElement('div');
+            container.classList.add('yt-speed-control');
+            container.style.cssText = `
+                display: inline-flex !important;
+                align-items: center !important;
+                height: 100% !important;
+                padding: 0 !important;
+                margin: 0 4px 0 0 !important;
+                color: #fff !important;
+                font-size: 13px !important;
+                font-family: 'YouTube Sans', 'Roboto', Arial, sans-serif !important;
+                vertical-align: top !important;
+                flex-shrink: 0 !important;
+                position: relative !important;
+                width: auto !important;
+            `;
+
+            SPEED_OPTIONS.forEach(speed => {
+                const option = document.createElement('button');
+                option.classList.add('yt-speed-option');
+                option.innerText = speed + 'x';
+                option.dataset.speed = speed;
+                option.title = speed + '倍速';
+                option.style.cssText = `
+                    cursor: pointer !important;
+                    margin: 0 !important;
+                    padding: 0 6px !important;
+                    height: 100% !important;
+                    width: auto !important;
+                    min-width: 32px !important;
+                    border: none !important;
+                    background: transparent !important;
+                    color: rgba(255, 255, 255, 0.9) !important;
+                    font-size: 13px !important;
+                    font-family: 'YouTube Sans', 'Roboto', Arial, sans-serif !important;
+                    font-weight: 400 !important;
+                    transition: opacity 0.1s ease-in-out !important;
+                    white-space: nowrap !important;
+                    flex-shrink: 0 !important;
+                    outline: none !important;
+                    opacity: 0.9 !important;
+                    box-sizing: border-box !important;
+                `;
+
+                option.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const video = getVideo();
+                    if (video) {
+                        video.playbackRate = speed;
+                        originalSpeed = speed;
+                        highlightOption(option);
+                    }
+                });
+
+                option.addEventListener('mouseenter', () => {
+                    option.style.opacity = '1';
+                });
+
+                option.addEventListener('mouseleave', () => {
+                    const video = getVideo();
+                    const currentSpeed = video ? video.playbackRate : 1;
+                    if (parseFloat(option.dataset.speed) !== currentSpeed) {
+                        option.style.opacity = '0.9';
+                    }
+                });
+
+                container.appendChild(option);
+            });
+
+            return container;
+        }
+    }
+
+    // 创建自定义倍速设置按钮
+    function createCustomSpeedButton() {
+        try {
+            const buttonContainer = document.createElement('div');
+            buttonContainer.classList.add('yt-speed-custom-container');
+            buttonContainer.style.cssText = `
+                display: inline-flex !important;
+                align-items: center !important;
+                height: 100% !important;
+                position: relative !important;
+            `;
+
+            const customBtn = document.createElement('button');
+            customBtn.classList.add('yt-speed-custom-btn');
+            customBtn.textContent = '⚙';
+            customBtn.title = '自定义倍速';
+            customBtn.style.cssText = `
+                cursor: pointer !important;
+                margin: 0 !important;
+                padding: 0 6px !important;
+                height: 100% !important;
+                width: auto !important;
+                min-width: 28px !important;
+                border: none !important;
+                background: transparent !important;
+                color: rgba(255, 255, 255, 0.7) !important;
+                font-size: 16px !important;
+                font-family: 'YouTube Sans', 'Roboto', Arial, sans-serif !important;
+                transition: all 0.2s ease-in-out !important;
+                white-space: nowrap !important;
+                flex-shrink: 0 !important;
+                outline: none !important;
+                box-sizing: border-box !important;
+            `;
+
+            // 创建编辑面板
+            const editPanel = createEditPanel();
+            buttonContainer.appendChild(customBtn);
+            buttonContainer.appendChild(editPanel);
+
+            // 点击显示/隐藏面板
+            let isPanelVisible = false;
+
+            const togglePanel = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                isPanelVisible = !isPanelVisible;
+                if (isPanelVisible) {
+                    customBtn.style.color = 'rgba(255, 255, 255, 1)';
+                    editPanel.style.display = 'block';
+                } else {
+                    customBtn.style.color = 'rgba(255, 255, 255, 0.7)';
+                    editPanel.style.display = 'none';
+                }
+            };
+
+            customBtn.addEventListener('click', togglePanel, true);
+
+            // 点击面板外部关闭
+            document.addEventListener('click', (e) => {
+                if (isPanelVisible && !buttonContainer.contains(e.target)) {
+                    isPanelVisible = false;
+                    customBtn.style.color = 'rgba(255, 255, 255, 0.7)';
+                    editPanel.style.display = 'none';
+                }
+            });
+
+            // 阻止面板内点击事件冒泡
+            editPanel.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            return buttonContainer;
+        } catch (error) {
+            console.error('创建自定义按钮失败:', error);
+            // 返回一个空的 div 作为降级方案
+            return document.createElement('div');
+        }
+    }
+
+    // 创建编辑面板
+    function createEditPanel() {
+        try {
+            const panel = document.createElement('div');
+            panel.classList.add('yt-speed-edit-panel');
+            panel.style.cssText = `
+                display: none !important;
+                position: absolute !important;
+                bottom: 100% !important;
+                right: 0 !important;
+                margin-bottom: 8px !important;
+                background: rgba(0, 0, 0, 0.6) !important;
+                border-radius: 12px !important;
+                padding: 8px 0 !important;
+                width: 251px !important;
+                max-height: 414px !important;
+                overflow-y: auto !important;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+                z-index: 10000 !important;
+                // color: #fff !important;
+                color: rgba(255, 255, 255, 0.9) !important;
+                font-family: Roboto, Arial, sans-serif !important;
+            `;
+
+            // 添加新倍速区域 - 滑块样式(放在顶部)
+            const addSection = document.createElement('div');
+            addSection.style.cssText = `
+                padding: 12px 16px 10px 16px !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            `;
+
+            // 标题和当前值
+            const sliderHeader = document.createElement('div');
+            sliderHeader.style.cssText = `
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: center !important;
+                margin-bottom: 10px !important;
+            `;
+
+            const sliderTitle = document.createElement('div');
+            sliderTitle.textContent = '自定义 (0.5)';
+            sliderTitle.style.cssText = `
+                color: #fff !important;
+                font-size: 14px !important;
+                font-weight: 400 !important;
+            `;
+
+            const sliderValue = document.createElement('div');
+            sliderValue.textContent = '0.50x';
+            sliderValue.style.cssText = `
+                color: #fff !important;
+                font-size: 16px !important;
+                font-weight: 500 !important;
+            `;
+
+            sliderHeader.appendChild(sliderTitle);
+            sliderHeader.appendChild(sliderValue);
+
+            // 滑块容器
+            const sliderContainer = document.createElement('div');
+            sliderContainer.style.cssText = `
+                position: relative !important;
+                width: 100% !important;
+                height: 4px !important;
+                background: rgba(255, 255, 255, 0.3) !important;
+                border-radius: 2px !important;
+                margin-bottom: 10px !important;
+            `;
+
+            // 滑块
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = '0.25';
+            slider.max = '4';
+            slider.step = '0.05';
+            slider.value = '0.5';
+            slider.style.cssText = `
+                position: absolute !important;
+                width: 100% !important;
+                height: 20px !important;
+                top: -8px !important;
+                left: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+                background: transparent !important;
+                outline: none !important;
+                cursor: pointer !important;
+            `;
+
+            // 滑块样式
+            const sliderStyleId = 'yt-speed-slider-style';
+            if (!document.getElementById(sliderStyleId)) {
+                const sliderStyle = document.createElement('style');
+                sliderStyle.id = sliderStyleId;
+                sliderStyle.textContent = `
+                    .yt-speed-slider::-webkit-slider-thumb {
+                        -webkit-appearance: none !important;
+                        appearance: none !important;
+                        width: 16px !important;
+                        height: 16px !important;
+                        border-radius: 50% !important;
+                        background: #fff !important;
+                        cursor: pointer !important;
+                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+                    }
+                    .yt-speed-slider::-moz-range-thumb {
+                        width: 16px !important;
+                        height: 16px !important;
+                        border-radius: 50% !important;
+                        background: #fff !important;
+                        cursor: pointer !important;
+                        border: none !important;
+                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+                    }
+                `;
+                document.head.appendChild(sliderStyle);
+            }
+            slider.classList.add('yt-speed-slider');
+
+            // 更新显示值
+            slider.addEventListener('input', (e) => {
+                e.stopPropagation();
+                const value = parseFloat(e.target.value);
+                sliderValue.textContent = value.toFixed(2) + 'x';
+                sliderTitle.textContent = `自定义 (${value.toFixed(2)})`;
+            });
+
+            // 阻止键盘事件冒泡
+            slider.addEventListener('keydown', (e) => {
+                e.stopPropagation();
+            });
+
+            slider.addEventListener('keyup', (e) => {
+                e.stopPropagation();
+            });
+
+            // 添加确认按钮
+            const addButton = document.createElement('button');
+            addButton.textContent = '添加';
+            addButton.style.cssText = `
+                width: 100% !important;
+                padding: 6px !important;
+                background: rgba(255, 255, 255, 0.1) !important;
+                border: none !important;
+                border-radius: 4px !important;
+                color: #fff !important;
+                font-size: 13px !important;
+                cursor: pointer !important;
+                transition: background 0.2s !important;
+            `;
+
+            addButton.addEventListener('mouseenter', () => {
+                addButton.style.background = 'rgba(255, 255, 255, 0.15) !important';
+            });
+
+            addButton.addEventListener('mouseleave', () => {
+                addButton.style.background = 'rgba(255, 255, 255, 0.1) !important';
+            });
+
+            // 消息提示
+            const messageDiv = document.createElement('div');
+            messageDiv.style.cssText = `
+                font-size: 11px !important;
+                margin-top: 6px !important;
+                padding: 4px !important;
+                border-radius: 3px !important;
+                display: none !important;
+                text-align: center !important;
+            `;
+
+            const showMessage = (text, isSuccess) => {
+                messageDiv.textContent = text;
+                messageDiv.style.display = 'block';
+                messageDiv.style.background = isSuccess ? 'rgba(48, 209, 88, 0.2) !important' : 'rgba(255, 69, 58, 0.2) !important';
+                messageDiv.style.color = isSuccess ? '#4cd964 !important' : '#ff453a !important';
+
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 2000);
+            };
+
+            sliderContainer.appendChild(slider);
+            addSection.appendChild(sliderHeader);
+            addSection.appendChild(sliderContainer);
+            addSection.appendChild(addButton);
+            addSection.appendChild(messageDiv);
+            panel.appendChild(addSection);
+
+            // 倍速列表容器
+            const listContainer = document.createElement('div');
+            listContainer.classList.add('yt-speed-list');
+            listContainer.style.cssText = `
+                padding: 4px 0 !important;
+            `;
+            panel.appendChild(listContainer);
+
+            // 渲染倍速列表
+            renderSpeedList(listContainer);
+
+            // 点击添加按钮添加倍速
+            addButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const value = parseFloat(slider.value);
+                const allSpeeds = [...PRESET_SPEEDS, ...CUSTOM_SPEEDS];
+
+                if (allSpeeds.includes(value)) {
+                    showMessage('该倍速已存在', false);
+                    return;
+                }
+
+                // 添加成功
+                CUSTOM_SPEEDS.push(value);
+                CUSTOM_SPEEDS.sort((a, b) => a - b);
+                SPEED_OPTIONS.push(value);
+                SPEED_OPTIONS.sort((a, b) => a - b);
+                saveSpeedOptions();
+                refreshSpeedControl();
+                renderSpeedList(listContainer);
+                showMessage('添加成功', true);
+            });
+
+            return panel;
+        } catch (error) {
+            console.error('创建编辑面板失败:', error);
+            // 返回一个空的 div 作为降级方案
+            return document.createElement('div');
+        }
+    }
+
+    // 渲染倍速列表
+    function renderSpeedList(container) {
+        // 清空容器
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+
+        // 合并所有倍速并排序
+        const allSpeeds = [...new Set([...PRESET_SPEEDS, ...CUSTOM_SPEEDS])].sort((a, b) => a - b);
+
+        allSpeeds.forEach(speed => {
+            const isPreset = PRESET_SPEEDS.includes(speed);
+            const isVisible = SPEED_OPTIONS.includes(speed);
+
+            const item = document.createElement('div');
+            item.style.cssText = `
+                display: flex !important;
+                align-items: center !important;
+                padding: 8px 16px !important;
+                cursor: pointer !important;
+                transition: background 0.1s !important;
+                background: transparent !important;
+            `;
+
+            item.addEventListener('mouseenter', () => {
+                item.style.background = 'rgba(255, 255, 255, 0.1) !important';
+            });
+
+            item.addEventListener('mouseleave', () => {
+                item.style.background = 'transparent !important';
+            });
+
+            // 勾选框
+            const checkbox = document.createElement('div');
+            checkbox.style.cssText = `
+                width: 18px !important;
+                height: 18px !important;
+                margin-right: 16px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                flex-shrink: 0 !important;
+            `;
+
+            if (isVisible) {
+                const checkmark = document.createElement('div');
+                checkmark.textContent = '✓';
+                checkmark.style.cssText = `
+                    color: #fff !important;
+                    font-size: 18px !important;
+                    font-weight: 500 !important;
+                    line-height: 1 !important;
+                `;
+                checkbox.appendChild(checkmark);
+            }
+
+            // 倍速文本
+            const speedText = document.createElement('span');
+            if (speed === 1) {
+                speedText.textContent = '正常';
+            } else {
+                speedText.textContent = speed.toString();
+            }
+            speedText.style.cssText = `
+                color: #fff !important;
+                font-size: 14px !important;
+                flex: 1 !important;
+                font-weight: 400 !important;
+            `;
+
+            // 删除按钮(仅自定义倍速)
+            if (!isPreset) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = '×';
+                deleteBtn.style.cssText = `
+                    background: transparent !important;
+                    border: none !important;
+                    color: rgba(255, 255, 255, 0.7) !important;
+                    font-size: 20px !important;
+                    cursor: pointer !important;
+                    padding: 0 !important;
+                    width: 24px !important;
+                    height: 24px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    border-radius: 50% !important;
+                    transition: all 0.2s !important;
+                `;
+
+                deleteBtn.addEventListener('mouseenter', () => {
+                    deleteBtn.style.background = 'rgba(255, 255, 255, 0.1) !important';
+                    deleteBtn.style.color = '#fff !important';
+                });
+
+                deleteBtn.addEventListener('mouseleave', () => {
+                    deleteBtn.style.background = 'transparent !important';
+                    deleteBtn.style.color = 'rgba(255, 255, 255, 0.7) !important';
+                });
+
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    CUSTOM_SPEEDS = CUSTOM_SPEEDS.filter(s => s !== speed);
+                    SPEED_OPTIONS = SPEED_OPTIONS.filter(s => s !== speed);
+                    saveSpeedOptions();
+                    refreshSpeedControl();
+                    renderSpeedList(container);
+                });
+
+                item.appendChild(speedText);
+                item.appendChild(deleteBtn);
+            } else {
+                item.appendChild(speedText);
+            }
+
+            // 点击切换显示/隐藏
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (isVisible) {
+                    SPEED_OPTIONS = SPEED_OPTIONS.filter(s => s !== speed);
+                } else {
+                    SPEED_OPTIONS.push(speed);
+                    SPEED_OPTIONS.sort((a, b) => a - b);
+                }
+                saveSpeedOptions();
+                refreshSpeedControl();
+                renderSpeedList(container);
+            });
+
+            item.insertBefore(checkbox, item.firstChild);
+            container.appendChild(item);
+        });
+    }
+
+    // 保存倍速选项到 localStorage
+    function saveSpeedOptions() {
+        try {
+            const data = {
+                visible: SPEED_OPTIONS,
+                custom: CUSTOM_SPEEDS
+            };
+            localStorage.setItem('yt-custom-speed-options', JSON.stringify(data));
+        } catch (e) {
+            console.error('保存倍速选项失败:', e);
+        }
+    }
+
+    // 从 localStorage 加载倍速选项
+    function loadSpeedOptions() {
+        try {
+            const saved = localStorage.getItem('yt-custom-speed-options');
+            if (saved) {
+                const data = JSON.parse(saved);
+                if (data.visible) {
+                    SPEED_OPTIONS = data.visible;
+                }
+                if (data.custom) {
+                    CUSTOM_SPEEDS = data.custom;
+                }
+            }
+        } catch (e) {
+            console.error('加载倍速选项失败:', e);
+        }
+    }
+
+    // 刷新倍速控件
+    function refreshSpeedControl() {
+        const buttonsContainer = document.querySelector('.yt-speed-buttons');
+        if (!buttonsContainer) {
+            // 如果控件不存在,重新插入
+            const oldControl = document.querySelector('.yt-speed-control');
+            if (oldControl) {
+                oldControl.remove();
+            }
+            insertSpeedControl();
+            return;
+        }
+
+        // 只更新倍速按钮,保留自定义按钮和面板
+        while (buttonsContainer.firstChild) {
+            buttonsContainer.removeChild(buttonsContainer.firstChild);
+        }
 
         SPEED_OPTIONS.forEach(speed => {
             const option = document.createElement('button');
@@ -427,10 +1071,11 @@
                 }
             });
 
-            container.appendChild(option);
+            buttonsContainer.appendChild(option);
         });
 
-        return container;
+        // 更新高亮
+        updateSpeedHighlight();
     }
 
     function highlightOption(selectedOption) {
@@ -494,69 +1139,111 @@
             .yt-speed-option:hover {
                 opacity: 1 !important;
             }
+            .yt-speed-edit-panel::-webkit-scrollbar {
+                width: 6px !important;
+            }
+            .yt-speed-edit-panel::-webkit-scrollbar-track {
+                background: rgba(255, 255, 255, 0.1) !important;
+                border-radius: 3px !important;
+            }
+            .yt-speed-edit-panel::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.3) !important;
+                border-radius: 3px !important;
+            }
+            .yt-speed-edit-panel::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.5) !important;
+            }
+            .yt-speed-list::-webkit-scrollbar {
+                width: 8px !important;
+            }
+            .yt-speed-list::-webkit-scrollbar-track {
+                background: transparent !important;
+                margin: 4px 0 !important;
+            }
+            .yt-speed-list::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.25) !important;
+                border-radius: 4px !important;
+                border: 2px solid transparent !important;
+                background-clip: padding-box !important;
+            }
+            .yt-speed-list::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.4) !important;
+                background-clip: padding-box !important;
+            }
         `;
         document.head.appendChild(style);
     }
 
     function insertSpeedControl() {
-        // 注入样式
-        injectStyles();
+        try {
+            // 注入样式
+            injectStyles();
 
-        // 查找 ytp-right-controls-left 容器
-        const rightControlsLeft = document.querySelector('.ytp-right-controls-left');
-        if (!rightControlsLeft || document.querySelector('.yt-speed-control')) return;
+            // 查找 ytp-right-controls-left 容器
+            const rightControlsLeft = document.querySelector('.ytp-right-controls-left');
+            if (!rightControlsLeft || document.querySelector('.yt-speed-control')) return;
 
-        const speedControl = createSpeedControl();
+            const speedControl = createSpeedControl();
 
-        // 插入到 ytp-right-controls-left 的最前面
-        rightControlsLeft.insertBefore(speedControl, rightControlsLeft.firstChild);
+            // 插入到 ytp-right-controls-left 的最前面
+            rightControlsLeft.insertBefore(speedControl, rightControlsLeft.firstChild);
 
-        // 初始化高亮
-        updateSpeedHighlight();
+            // 初始化高亮
+            updateSpeedHighlight();
 
-        // 监听视频速度变化
-        const video = getVideo();
-        if (video) {
-            video.addEventListener('ratechange', () => {
-                if (!isPressing) {
-                    updateSpeedHighlight();
-                }
-            });
+            // 监听视频速度变化
+            const video = getVideo();
+            if (video) {
+                video.addEventListener('ratechange', () => {
+                    if (!isPressing) {
+                        updateSpeedHighlight();
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('插入倍速控件失败:', error);
         }
     }
 
     // ==================== 初始化 ====================
     function init() {
-        // 注册键盘事件
-        document.addEventListener('keydown', handleKeyDown, true);
-        document.addEventListener('keyup', handleKeyUp, true);
+        try {
+            // 加载自定义倍速选项
+            loadSpeedOptions();
 
-        // 注册链接点击事件（新标签页打开功能）
-        document.addEventListener('click', handleLinkClick, true);
+            // 注册键盘事件
+            document.addEventListener('keydown', handleKeyDown, true);
+            document.addEventListener('keyup', handleKeyUp, true);
 
-        // 页面加载时暂停视频
-        document.addEventListener('DOMContentLoaded', pauseVideoOnLoad);
+            // 注册链接点击事件（新标签页打开功能）
+            document.addEventListener('click', handleLinkClick, true);
 
-        // 使用 MutationObserver 监听 DOM 变化
-        const observer = new MutationObserver(() => {
-            insertSpeedControl();
-        });
+            // 页面加载时暂停视频
+            document.addEventListener('DOMContentLoaded', pauseVideoOnLoad);
 
-        // 等待 body 加载后再启动 observer
-        if (document.body) {
-            observer.observe(document.body, { childList: true, subtree: true });
-        } else {
-            document.addEventListener('DOMContentLoaded', () => {
-                observer.observe(document.body, { childList: true, subtree: true });
+            // 使用 MutationObserver 监听 DOM 变化
+            const observer = new MutationObserver(() => {
+                insertSpeedControl();
             });
-        }
 
-        // 页面加载完成后尝试插入
-        window.addEventListener('load', insertSpeedControl);
+            // 等待 body 加载后再启动 observer
+            if (document.body) {
+                observer.observe(document.body, { childList: true, subtree: true });
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    observer.observe(document.body, { childList: true, subtree: true });
+                });
+            }
 
-        // 立即尝试插入（如果DOM已就绪）
-        if (document.readyState !== 'loading') {
-            insertSpeedControl();
+            // 页面加载完成后尝试插入
+            window.addEventListener('load', insertSpeedControl);
+
+            // 立即尝试插入（如果DOM已就绪）
+            if (document.readyState !== 'loading') {
+                insertSpeedControl();
+            }
+        } catch (error) {
+            console.error('[YouTube倍速控件] 初始化失败:', error);
         }
     }
 
