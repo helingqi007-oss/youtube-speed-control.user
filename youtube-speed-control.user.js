@@ -42,6 +42,13 @@
     const LONG_PRESS_DELAY = 200; // 长按判定时间（毫秒）
     const SEEK_SECONDS = 5; // 短按快进秒数（与YouTube默认一致）
 
+    // Ctrl键专用状态追踪（解决Ctrl键keyup事件可能丢失的问题）
+    let ctrlKeyState = {
+        isDown: false,
+        originalSpeed: 1.0,
+        checkInterval: null
+    };
+
     // ==================== 工具函数 ====================
     function getVideo() {
         return document.querySelector('video');
@@ -207,6 +214,26 @@
 
     // ==================== 键盘事件处理 ====================
     function handleKeyDown(e) {
+        // 检查任意按键事件中的ctrlKey属性，用于检测Ctrl键是否真的还在按下
+        if (ctrlKeyState.isDown && !e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') {
+            // Ctrl键状态标记为按下，但实际事件中ctrlKey为false，说明Ctrl键已松开但keyup事件丢失
+            console.log('[YouTube倍速] 检测到Ctrl键状态不一致，强制恢复');
+            const video = getVideo();
+            if (video && video.playbackRate === SPEED_KEY_CTRL) {
+                video.playbackRate = ctrlKeyState.originalSpeed;
+            }
+            ctrlKeyState.isDown = false;
+            if (ctrlKeyState.checkInterval) {
+                clearInterval(ctrlKeyState.checkInterval);
+                ctrlKeyState.checkInterval = null;
+            }
+            isPressing = false;
+            isLongPress = false;
+            currentKey = null;
+            hideOverlay();
+            updateSpeedHighlight();
+        }
+
         if (e.code !== 'KeyZ' && e.code !== 'ControlLeft' && e.code !== 'ControlRight' && e.code !== 'ArrowRight') return;
 
         const tag = e.target.tagName;
@@ -214,6 +241,10 @@
 
         // Z键保持原有行为：立即触发倍速
         if (e.code === 'KeyZ') {
+            // 阻止默认行为
+            e.preventDefault();
+            e.stopPropagation();
+
             if (isPressing) return;
 
             const video = getVideo();
@@ -223,6 +254,7 @@
             isLongPress = true;
             currentKey = e.code;
             originalSpeed = video.playbackRate;
+            console.log('[YouTube倍速] Z键按下，记录原始速度:', originalSpeed, '当前状态:', { isPressing, isLongPress, currentKey });
 
             video.playbackRate = SPEED_KEY_Z;
             showOverlay(SPEED_KEY_Z);
@@ -232,6 +264,10 @@
 
         // Ctrl键（左或右）：立即触发倍速
         if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+            // 阻止默认行为，避免浏览器快捷键干扰
+            e.preventDefault();
+            e.stopPropagation();
+
             if (isPressing) return;
 
             const video = getVideo();
@@ -242,9 +278,54 @@
             currentKey = e.code;
             originalSpeed = video.playbackRate;
 
+            // 设置Ctrl键状态
+            ctrlKeyState.isDown = true;
+            ctrlKeyState.originalSpeed = video.playbackRate;
+
+            console.log('[YouTube倍速] Ctrl键按下，记录原始速度:', originalSpeed, '当前状态:', { isPressing, isLongPress, currentKey });
+
             video.playbackRate = SPEED_KEY_CTRL;
             showOverlay(SPEED_KEY_CTRL);
             updateSpeedHighlight();
+
+            // 启动轮询检查Ctrl键是否松开（兜底机制）
+            if (ctrlKeyState.checkInterval) {
+                clearInterval(ctrlKeyState.checkInterval);
+            }
+            let checkCount = 0;
+            ctrlKeyState.checkInterval = setInterval(() => {
+                const video = getVideo();
+                if (!video) return;
+
+                checkCount++;
+
+                // 如果视频速度还是快进速度，检查Ctrl键是否真的还在按下
+                if (ctrlKeyState.isDown && video.playbackRate === SPEED_KEY_CTRL) {
+                    // 每秒输出一次日志（10次检查 = 1秒）
+                    if (checkCount % 10 === 0) {
+                        console.log('[YouTube倍速] Ctrl键轮询检查中...', checkCount / 10, '秒');
+                    }
+
+                    // 如果超过5秒还在快进状态，可能是keyup事件丢失，强制恢复
+                    if (checkCount > 50) {
+                        console.log('[YouTube倍速] Ctrl键超时（5秒），强制恢复速度');
+                        video.playbackRate = ctrlKeyState.originalSpeed;
+                        ctrlKeyState.isDown = false;
+                        clearInterval(ctrlKeyState.checkInterval);
+                        ctrlKeyState.checkInterval = null;
+                        isPressing = false;
+                        isLongPress = false;
+                        currentKey = null;
+                        hideOverlay();
+                        updateSpeedHighlight();
+                    }
+                } else if (!ctrlKeyState.isDown) {
+                    // Ctrl键已松开，清除定时器
+                    clearInterval(ctrlKeyState.checkInterval);
+                    ctrlKeyState.checkInterval = null;
+                }
+            }, 100);
+
             return;
         }
 
@@ -279,6 +360,7 @@
                 isPressing = true;
                 isLongPress = true;
                 longPressTimer = null;
+                console.log('[YouTube倍速] 右方向键长按触发，记录的原始速度:', originalSpeed);
 
                 video.playbackRate = SPEED_KEY_RIGHT;
                 showOverlay(SPEED_KEY_RIGHT);
@@ -288,6 +370,27 @@
     }
 
     function handleKeyUp(e) {
+        // 检查任意按键松开事件中的ctrlKey属性
+        if (ctrlKeyState.isDown && !e.ctrlKey) {
+            // Ctrl键已经不在按下状态了
+            console.log('[YouTube倍速] 通过keyup事件检测到Ctrl键已松开');
+            const video = getVideo();
+            if (video && video.playbackRate === SPEED_KEY_CTRL) {
+                video.playbackRate = ctrlKeyState.originalSpeed;
+                console.log('[YouTube倍速] 恢复速度到:', ctrlKeyState.originalSpeed);
+            }
+            ctrlKeyState.isDown = false;
+            if (ctrlKeyState.checkInterval) {
+                clearInterval(ctrlKeyState.checkInterval);
+                ctrlKeyState.checkInterval = null;
+            }
+            isPressing = false;
+            isLongPress = false;
+            currentKey = null;
+            hideOverlay();
+            updateSpeedHighlight();
+        }
+
         if (e.code !== 'KeyZ' && e.code !== 'ControlLeft' && e.code !== 'ControlRight' && e.code !== 'ArrowRight') return;
 
         const tag = e.target.tagName;
@@ -295,10 +398,50 @@
 
         // Z键松开处理
         if (e.code === 'KeyZ') {
+            // 阻止默认行为
+            e.preventDefault();
+            e.stopPropagation();
+
+            console.log('[YouTube倍速] Z键松开事件触发', {
+                isPressing,
+                isLongPress,
+                currentKey,
+                originalSpeed
+            });
+
+            const video = getVideo();
+            if (!video) {
+                console.log('[YouTube倍速] 警告：找不到video元素');
+                return;
+            }
+
+            console.log('[YouTube倍速] 当前视频速度:', video.playbackRate);
+
             if (isPressing && currentKey === 'KeyZ') {
-                const video = getVideo();
-                if (video) {
+                video.playbackRate = originalSpeed;
+                console.log('[YouTube倍速] Z键松开，恢复速度:', originalSpeed);
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            } else if (currentKey === 'KeyZ') {
+                // 兜底处理
+                if (video.playbackRate === SPEED_KEY_Z) {
                     video.playbackRate = originalSpeed;
+                    console.log('[YouTube倍速] Z键松开（兜底），恢复速度:', originalSpeed);
+                }
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            } else {
+                console.log('[YouTube倍速] 所有条件都不满足，强制恢复速度');
+                // 强制恢复
+                if (video.playbackRate === SPEED_KEY_Z) {
+                    video.playbackRate = originalSpeed;
+                    console.log('[YouTube倍速] 强制恢复速度:', originalSpeed);
                 }
                 isPressing = false;
                 isLongPress = false;
@@ -311,10 +454,66 @@
 
         // Ctrl键（左或右）松开处理
         if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+            // 阻止默认行为
+            e.preventDefault();
+            e.stopPropagation();
+
+            console.log('[YouTube倍速] Ctrl键松开事件触发', {
+                code: e.code,
+                isPressing,
+                isLongPress,
+                currentKey,
+                originalSpeed,
+                ctrlKeyState
+            });
+
+            // 清除轮询定时器
+            if (ctrlKeyState.checkInterval) {
+                clearInterval(ctrlKeyState.checkInterval);
+                ctrlKeyState.checkInterval = null;
+            }
+
+            // 标记Ctrl键已松开
+            ctrlKeyState.isDown = false;
+
+            const video = getVideo();
+            if (!video) {
+                console.log('[YouTube倍速] 警告：找不到video元素');
+                return;
+            }
+
+            console.log('[YouTube倍速] 当前视频速度:', video.playbackRate);
+
+            // 使用ctrlKeyState中保存的原始速度
+            const speedToRestore = ctrlKeyState.originalSpeed || originalSpeed;
+
             if (isPressing && (currentKey === 'ControlLeft' || currentKey === 'ControlRight')) {
-                const video = getVideo();
-                if (video) {
-                    video.playbackRate = originalSpeed;
+                video.playbackRate = speedToRestore;
+                console.log('[YouTube倍速] Ctrl键松开，恢复速度:', speedToRestore);
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            } else if (currentKey === 'ControlLeft' || currentKey === 'ControlRight') {
+                // 兜底处理
+                if (video.playbackRate === SPEED_KEY_CTRL) {
+                    video.playbackRate = speedToRestore;
+                    console.log('[YouTube倍速] Ctrl键松开（兜底），恢复速度:', speedToRestore);
+                } else {
+                    console.log('[YouTube倍速] 兜底条件不满足，当前速度:', video.playbackRate, '期望速度:', SPEED_KEY_CTRL);
+                }
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            } else {
+                console.log('[YouTube倍速] 所有条件都不满足，强制恢复速度');
+                // 强制恢复：如果当前是快进速度，无论什么状态都恢复
+                if (video.playbackRate === SPEED_KEY_CTRL) {
+                    video.playbackRate = speedToRestore;
+                    console.log('[YouTube倍速] 强制恢复速度:', speedToRestore);
                 }
                 isPressing = false;
                 isLongPress = false;
@@ -331,11 +530,21 @@
             e.stopPropagation();
             e.stopImmediatePropagation();
 
+            console.log('[YouTube倍速] 右方向键松开事件触发', {
+                isPressing,
+                isLongPress,
+                currentKey,
+                originalSpeed,
+                hasTimer: !!longPressTimer
+            });
+
             // 如果定时器还在运行，说明是短按
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
                 currentKey = null;
+                originalSpeed = 1.0; // 重置原始速度
+                console.log('[YouTube倍速] 短按右方向键，执行快进');
 
                 // 手动执行快进操作（补偿被阻止的默认行为）
                 const video = getVideo();
@@ -345,11 +554,40 @@
                 return;
             }
 
+            const video = getVideo();
+            if (!video) {
+                console.log('[YouTube倍速] 警告：找不到video元素');
+                return;
+            }
+
+            console.log('[YouTube倍速] 当前视频速度:', video.playbackRate);
+
             // 如果是长按状态，恢复原速度
             if (isPressing && isLongPress && currentKey === 'ArrowRight') {
-                const video = getVideo();
-                if (video) {
+                video.playbackRate = originalSpeed;
+                console.log('[YouTube倍速] 右方向键松开，恢复速度:', originalSpeed);
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            } else if (currentKey === 'ArrowRight') {
+                // 兜底处理
+                if (video.playbackRate === SPEED_KEY_RIGHT) {
                     video.playbackRate = originalSpeed;
+                    console.log('[YouTube倍速] 右方向键松开（兜底），恢复速度:', originalSpeed);
+                }
+                isPressing = false;
+                isLongPress = false;
+                currentKey = null;
+                hideOverlay();
+                updateSpeedHighlight();
+            } else {
+                console.log('[YouTube倍速] 所有条件都不满足，强制恢复速度');
+                // 强制恢复
+                if (video.playbackRate === SPEED_KEY_RIGHT) {
+                    video.playbackRate = originalSpeed;
+                    console.log('[YouTube倍速] 强制恢复速度:', originalSpeed);
                 }
                 isPressing = false;
                 isLongPress = false;
@@ -1214,6 +1452,55 @@
             // 注册键盘事件
             document.addEventListener('keydown', handleKeyDown, true);
             document.addEventListener('keyup', handleKeyUp, true);
+
+            // 额外的全局监听器，监听Ctrl键状态（兜底机制）
+            window.addEventListener('blur', () => {
+                // 窗口失焦时，强制恢复速度
+                if (ctrlKeyState.isDown) {
+                    console.log('[YouTube倍速] 窗口失焦，强制恢复Ctrl键状态');
+                    const video = getVideo();
+                    if (video && video.playbackRate === SPEED_KEY_CTRL) {
+                        video.playbackRate = ctrlKeyState.originalSpeed;
+                    }
+                    ctrlKeyState.isDown = false;
+                    if (ctrlKeyState.checkInterval) {
+                        clearInterval(ctrlKeyState.checkInterval);
+                        ctrlKeyState.checkInterval = null;
+                    }
+                    isPressing = false;
+                    isLongPress = false;
+                    currentKey = null;
+                    hideOverlay();
+                    updateSpeedHighlight();
+                }
+            }, true);
+
+            // 监听鼠标点击，如果Ctrl键应该松开但没有触发keyup
+            document.addEventListener('mousedown', () => {
+                if (ctrlKeyState.isDown) {
+                    const video = getVideo();
+                    if (video && video.playbackRate === SPEED_KEY_CTRL) {
+                        console.log('[YouTube倍速] 检测到鼠标点击，检查Ctrl键状态');
+                        // 延迟检查，因为可能是Ctrl+点击
+                        setTimeout(() => {
+                            if (ctrlKeyState.isDown && video.playbackRate === SPEED_KEY_CTRL) {
+                                console.log('[YouTube倍速] Ctrl键可能卡住，尝试恢复');
+                                video.playbackRate = ctrlKeyState.originalSpeed;
+                                ctrlKeyState.isDown = false;
+                                if (ctrlKeyState.checkInterval) {
+                                    clearInterval(ctrlKeyState.checkInterval);
+                                    ctrlKeyState.checkInterval = null;
+                                }
+                                isPressing = false;
+                                isLongPress = false;
+                                currentKey = null;
+                                hideOverlay();
+                                updateSpeedHighlight();
+                            }
+                        }, 100);
+                    }
+                }
+            }, true);
 
             // 注册链接点击事件（新标签页打开功能）
             document.addEventListener('click', handleLinkClick, true);
