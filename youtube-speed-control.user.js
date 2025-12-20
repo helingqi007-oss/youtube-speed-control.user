@@ -3,7 +3,7 @@
 // @namespace    Tampermonkey Scripts
 // @match        *://www.youtube.com/*
 // @grant        none
-// @version      1.6.1
+// @version      1.6.2
 // @author       
 // @description  长按快捷键快速倍速播放（Z/Ctrl 2倍速，右方向键 3倍速）。视频控制栏添加倍速切换按钮，支持自定义倍速设置。YouTube 链接强制新标签页打开。
 // @license      MIT
@@ -175,15 +175,47 @@
                 element.closest('ytd-thumbnail-overlay-toggle-button-renderer');
         },
 
+        isActionButton(element) {
+            // 检查是否是功能按钮或按钮容器
+            return element.closest('button') ||
+                element.closest('ytd-menu-renderer') ||
+                element.closest('ytd-button-renderer') ||
+                element.closest('yt-icon-button') ||
+                element.closest('[role="button"]') ||
+                element.closest('ytd-thumbnail-overlay-toggle-button-renderer') ||
+                element.closest('ytd-thumbnail-overlay-time-status-renderer') ||
+                element.closest('#button') ||
+                element.closest('.ytd-menu-renderer');
+        },
+
+        isThumbnailLink(anchor) {
+            // 检查是否是视频封面链接
+            return anchor.id === 'thumbnail' ||
+                anchor.classList.contains('yt-simple-endpoint') ||
+                anchor.closest('ytd-thumbnail');
+        },
+
         handleLinkClick(event) {
             if (!CONFIG.ENABLE_NEW_TAB_LINKS || event.ctrlKey || event.metaKey) return;
 
             const anchor = event.target.closest('a');
             if (!anchor || !anchor.href) return;
 
+            // 优先检查是否点击了功能按钮,如果是则不拦截
+            if (NewTabModule.isActionButton(event.target)) {
+                return;
+            }
+
+            // 检查是否是封面链接,如果是则允许新标签打开
+            const isThumbnail = NewTabModule.isThumbnailLink(anchor);
+
             if (NewTabModule.isChapterLink(anchor.href) ||
-                NewTabModule.isPlaylistPanelVideoClick(anchor) ||
-                NewTabModule.isThumbnailHoverAction(event.target)) {
+                NewTabModule.isPlaylistPanelVideoClick(anchor)) {
+                return;
+            }
+
+            // 如果不是封面链接,检查是否是悬停覆盖层操作
+            if (!isThumbnail && NewTabModule.isThumbnailHoverAction(event.target)) {
                 return;
             }
 
